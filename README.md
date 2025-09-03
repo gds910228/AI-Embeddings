@@ -1,297 +1,147 @@
-# AI Text Embedding Generator - 智谱GLM文本嵌入生成器
+# AI 文本嵌入与语义检索 MCP 服务
 
-基于智谱AI GLM嵌入模型的高质量文本嵌入系统，将文本转换为高维向量表示，用于语义相似性和搜索。
+基于智谱 AI GLM 嵌入模型的文本嵌入与语义检索服务。支持作为 MCP 工具集使用，提供“文档索引 → 语义搜索”的完整演示闭环，并内置中文自然语言指令解析。
 
-## ✨ 主要特性
+## ✨ 功能概览
 
-- 🔤 **文本嵌入生成**: 基于智谱GLM嵌入模型
-- 🔧 **多模型支持**: embedding-3、embedding-2
-- 🔍 **相似度计算**: 计算文本间的语义相似度
-- 🔎 **相似文本搜索**: 在候选文本中找到最相似的内容
-- 🌐 **Web界面**: 现代化的响应式Web界面
-- 🔌 **MCP服务器**: 支持Model Context Protocol
-- 📦 **批量处理**: 支持批量文本嵌入
-- 💾 **数据导出**: 支持嵌入向量的保存和加载
+- 文本嵌入
+  - 单文本与批量嵌入（embedding-3 / embedding-2）
+  - 文本相似度计算、候选集中相似文本搜索
+- 知识库能力（新增）
+  - 文档索引：支持 .md / .txt、本地目录递归与 http/https URL
+  - 语义搜索：TopK 片段检索，返回来源与片段文本
+  - 中文自然语言指令：`nl_command` 解析“索引/搜索”等口令
+- 存储后端（免安装可用）
+  - 自动检测 ChromaDB；不可用时回退到本地 JSONL 向量库（outputs/simple_kb）
+- MCP 工具集
+  - get_text_embeddings / get_batch_embeddings / calculate_text_similarity / find_similar_texts
+  - get_supported_embedding_models / test_embedding_api / save_embeddings_to_file / load_embeddings_from_file
+  - index_documents（新增）/ semantic_search（新增）/ nl_command（新增）
 
 ## 🚀 快速开始
 
 ### 环境要求
-
 - Python 3.8+
-- 智谱AI API密钥
+- 智谱 AI API Key（环境变量：`ZHIPU_API_KEY`）
+- Windows PowerShell 示例命令如下（其他平台同理调整）
 
 ### 安装依赖
+可选其一：
+- 使用 uv（推荐）：`uv sync`
+- 或使用 pip（按需）：`pip install -U mcp[cli] fastapi uvicorn numpy requests`
 
-```bash
-# 使用uv安装依赖（推荐）
-uv sync
+> 说明：项目已内置本地向量库回退，无需安装 chromadb 即可演示。
 
-# 或使用pip安装
-pip install -r requirements.txt
+### 配置环境变量（PowerShell）
+```powershell
+$env:ZHIPU_API_KEY="你的新Key"
+# 限制可索引的本地路径（; 分隔多路径），建议开启
+$env:ALLOW_INDEX_DIRS="D:\WorkProjects\AI\MCPServers\2AI-Embeddings\docs"
 ```
 
-### 配置API密钥
+### 本地一行联调（无需 MCP 客户端）
+```powershell
+python -c "from main import index_documents, semantic_search; import json; \
+print(json.dumps(index_documents(paths=['docs/sample/policies.md'], kb='kb_policies'), ensure_ascii=False, indent=2)); \
+print(json.dumps(semantic_search(query='差旅报销怎么走', kb='kb_policies', top_k=3), ensure_ascii=False, indent=2))"
+```
 
-创建 `config.json` 文件：
-
+期望输出（示例，省略部分字段）：
 ```json
 {
-  "api_keys": {
-    "zhipu": "your_zhipu_api_key_here"
-  }
+  "success": true,
+  "kb": "kb_policies",
+  "files_indexed": 1,
+  "chunks_indexed": 2,
+  "details": [ { "source": "docs\\sample\\policies.md", "chunks": 2, "status": "ok" } ]
+}
+{
+  "success": true,
+  "kb": "kb_policies",
+  "query": "差旅报销怎么走",
+  "top_k": 3,
+  "results": [
+    { "rank": 1, "source": "docs\\sample\\policies.md", "text": "…片段文本…" },
+    { "rank": 2, "source": "docs\\sample\\policies.md", "text": "…片段文本…" }
+  ]
 }
 ```
 
-或设置环境变量：
-
-```bash
-export ZHIPU_API_KEY="your_zhipu_api_key_here"
-```
-
-### MCP配置
-```json
-{
-  "mcpServers":{
-    "mcp-text-embedding": {
-      "disabled": false,
-      "timeout": 60,
-      "type": "sse",
-      "url": "http://127.0.0.1:8000/sse"
-    }
-  }
-}
-```
-
-### 运行方式
-
-#### 1. Web界面模式（推荐）
-
-```bash
-python embedding_server.py
-```
-
-然后访问 http://localhost:5000
-
-#### 2. 交互式命令行模式
-
-```bash
-python main.py
-```
-
-#### 3. MCP服务器模式
-
+### 启动 MCP 服务器
 ```bash
 python main.py --mcp
 ```
+在支持 MCP 的客户端（如蓝耘平台）选择此服务后，可在“工具”里调用：
+- `nl_command`（自然语言路由）
+  - `索引 docs\sample kb=kb_policies`
+  - `搜索 "差旅报销怎么走" kb=kb_policies top=3`
+- 或直接调用工具：
+  - `index_documents(paths=["docs/sample/policies.md"], kb="kb_policies")`
+  - `semantic_search(query="差旅报销怎么走", kb="kb_policies", top_k=3)`
 
-## 🎯 支持的模型
+## 🧰 MCP 工具列表（摘要）
 
-| 模型 | 描述 | 特点 |
-|------|------|------|
-| embedding-3 | 最新的嵌入模型 | 高质量文本向量表示，推荐使用 |
-| embedding-2 | 较早版本的嵌入模型 | 兼容性更好，稳定性高 |
+- get_text_embeddings(input_text, model="embedding-3")
+- get_batch_embeddings(texts, model="embedding-3")
+- calculate_text_similarity(text1, text2, model="embedding-3")
+- find_similar_texts(query_text, candidate_texts, model="embedding-3", top_k=5)
+- get_supported_embedding_models()
+- test_embedding_api(test_text=None)
+- save_embeddings_to_file(texts, filename, model="embedding-3")
+- load_embeddings_from_file(filename)
+- index_documents(paths: List[str], kb="kb_default", chunk_size=500, overlap=50, model="embedding-3")  ← 新增
+- semantic_search(query: str, kb="kb_default", top_k=5, model="embedding-3")  ← 新增
+- nl_command(command: str)  ← 新增
+  - 例：`索引 docs kb=kb_docs chunk_size=500 overlap=50`
+  - 例：`搜索 "请假申请" kb=kb_docs top=5`
 
-## 🔤 主要功能
+## 📦 存储后端说明
 
-- **单文本嵌入** - 将单个文本转换为高维向量
-- **批量文本嵌入** - 同时处理多个文本
-- **相似度计算** - 计算两个文本的语义相似度
-- **相似文本搜索** - 在候选文本中找到最相似的内容
+- 默认：内置本地向量库（JSONL + numpy 余弦检索），持久化于 `outputs/simple_kb/{kb}.jsonl`
+  - 小规模（≤ 1 万 chunks）TopK 检索无压力，演示友好
+- 可选：ChromaDB（自动检测）
+  - 若本机已安装并可用，将自动使用 ChromaDB 持久化（无需修改调用层）
+  - 若不可用，自动回退到本地 JSONL 后端
 
-## 🎨 使用示例
+## 🔐 安全与约束
 
-### Python API调用
+- 必需：`ZHIPU_API_KEY`（不要在终端/日志中明文回显）
+- 路径白名单：`ALLOW_INDEX_DIRS` 限制可索引目录，防止越权读取
+- 输入校验与错误处理：URL/路径存在性、网络异常重试、清晰的错误提示
 
-```python
-from zhipu_image_client import ZhipuImageClient
+## 📝 示例数据
 
-# 初始化客户端
-client = ZhipuImageClient()
+已内置示例文档：`docs/sample/policies.md`  
+可直接用于演示“索引/搜索”闭环。
 
-# 生成图像
-result = client.generate_and_save_image(
-    prompt="一只可爱的柯基犬在樱花树下奔跑",
-    model="cogview-4",
-    size="1024x1024",
-    quality="standard"
-)
-
-if result["success"]:
-    print(f"图像已保存到: {result['file_path']}")
-    print(f"图像URL: {result['image_url']}")
-else:
-    print(f"生成失败: {result['error']}")
-```
-
-### 批量生成
-
-```python
-# 批量生成多张图像
-prompts = [
-    "一只橘猫在阳光下打盹",
-    "未来科技城市夜景",
-    "水彩画风格的山水画"
-]
-
-result = client.batch_generate_images(
-    prompts=prompts,
-    model="cogview-4",
-    size="1024x1024"
-)
-
-print(f"成功生成: {result['successful']}/{result['total']} 张图像")
-```
-
-### MCP工具调用
-
-```python
-# 生成图像
-generate_image_from_prompt(
-    prompt="一朵红色的玫瑰花",
-    model="cogview-4",
-    size="1024x1024",
-    quality="hd",
-    save_file=True
-)
-
-# 批量生成
-batch_generate_images(
-    prompts=["猫咪", "狗狗", "兔子"],
-    model="cogview-3-flash",
-    size="512x512"
-)
-
-# 获取支持的选项
-get_supported_options()
-
-# 测试API连接
-test_image_api("测试图像")
-```
-
-## 🌐 Web界面功能
-
-- **智能提示词输入**: 支持多行文本输入和示例提示词
-- **参数配置**: 可视化选择模型、尺寸和质量
-- **实时预览**: 生成后立即显示图像
-- **历史记录**: 保存最近的生成历史
-- **下载功能**: 一键下载生成的图像
-- **API状态监控**: 实时显示API连接状态
-
-## 📁 项目结构
+## 🧱 项目结构
 
 ```
-AI-Image-Generator/
-├── main.py                 # 主程序入口
-├── zhipu_image_client.py   # 智谱图像生成客户端
-├── image_server.py         # Web服务器
-├── image_interface.html    # Web界面
-├── network_diagnostic.py   # 网络诊断工具
-├── config.json            # 配置文件
-├── outputs/               # 输出目录
-└── docs/                  # 文档目录
-```
-
-## 🔧 配置选项
-
-### API配置
-
-```json
-{
-  "api_keys": {
-    "zhipu": "your_api_key"
-  },
-  "api_settings": {
-    "timeout": 120,
-    "max_retries": 3,
-    "base_url": "https://open.bigmodel.cn/api/paas/v4/images/generations"
-  }
-}
-```
-
-### 生成参数
-
-- **prompt**: 图像描述提示词（必需）
-- **model**: 生成模型（默认: cogview-4）
-- **size**: 图像尺寸（默认: 1024x1024）
-- **quality**: 图像质量（默认: standard）
-
-## 🛠️ 开发指南
-
-### 添加新模型
-
-1. 在 `zhipu_image_client.py` 中更新 `image_models` 字典
-2. 确保API支持新模型
-3. 更新Web界面的模型选项
-
-### 自定义输出格式
-
-```python
-# 修改保存格式
-def save_custom_format(self, image_data, filename, format="png"):
-    # 自定义保存逻辑
-    pass
+2AI-Embeddings/
+├── main.py                         # 主入口（MCP 工具注册）
+├── zhipu_embedding_client.py       # 智谱嵌入客户端
+├── services/
+│   ├── chunking.py                 # 文本分块（支持重叠）
+│   ├── indexing.py                 # 文档收集与索引（复用嵌入、写入存储）
+│   ├── searching.py                # 语义搜索（TopK 返回）
+│   ├── vector_store.py             # 通用向量库接口（ChromaDB / JSONL 回退）
+│   └── command_parser.py           # 中文自然语言指令解析（索引/搜索）
+├── docs/
+│   └── sample/policies.md          # 示例政策文档
+└── outputs/
+    └── simple_kb/                  # 本地向量库持久化（自动生成）
 ```
 
 ## 🔍 故障排除
 
-### 常见问题
+- “无法读取本地路径”：设置 `ALLOW_INDEX_DIRS` 将目标目录加入白名单
+- “chromadb 安装失败”：可忽略；系统已自动回退到本地 JSONL 后端
+- “检索不准/片段不理想”：调参 `chunk_size` / `overlap`，或扩充语料
+- “API 连接异常”：检查网络与 `ZHIPU_API_KEY`；可用 `test_embedding_api` 自检
 
-1. **API密钥错误**
-   - 检查config.json中的API密钥
-   - 确认环境变量ZHIPU_API_KEY设置正确
-
-2. **网络连接问题**
-   - 运行网络诊断: `python network_diagnostic.py`
-   - 检查防火墙和代理设置
-
-3. **图像生成失败**
-   - 检查提示词是否包含敏感内容
-   - 尝试使用不同的模型或参数
-
-4. **Web界面无法访问**
-   - 确认端口5000未被占用
-   - 检查防火墙设置
-
-### 调试模式
-
-```bash
-# 启用详细日志
-export LOG_LEVEL=DEBUG
-python main.py
-```
-
-## 📊 性能优化
-
-- 使用 `cogview-3-flash` 模型获得更快的生成速度
-- 批量生成时适当增加延迟避免API限制
-- 选择合适的图像尺寸平衡质量和速度
-
-## 🤝 贡献指南
-
-1. Fork 项目
-2. 创建功能分支
-3. 提交更改
-4. 推送到分支
-5. 创建Pull Request
-
-## 📄 许可证
-
+## 📜 许可
 MIT License
 
 ## 🙏 致谢
-
-- 智谱AI提供的CogView-4模型
-- Flask和相关Web框架
-- 所有贡献者和用户
-
-## 📞 支持
-
-如有问题或建议，请：
-
-1. 查看文档和FAQ
-2. 提交Issue
-3. 联系开发团队
-
----
-
-**享受AI图像生成的乐趣！** 🎨✨
+- 智谱 AI GLM 嵌入模型
+- MCP 生态与开源社区
