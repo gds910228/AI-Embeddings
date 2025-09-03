@@ -16,6 +16,9 @@ from typing import List, Optional, Dict, Any, Union
 from mcp.server.fastmcp import FastMCP
 from zhipu_embedding_client import ZhipuEmbeddingClient
 from network_diagnostic import NetworkDiagnostic
+from services.indexing import collect_sources, index_to_chroma
+from services.searching import search_kb
+from services.command_parser import parse_command
 
 # Create an MCP server
 mcp = FastMCP("AI Text Embedding Generator")
@@ -36,9 +39,9 @@ def load_config():
 config = load_config()
 
 # Initialize clients
-api_key = config.get("zhipu_api_key") or os.getenv("ZHIPU_API_KEY")
-embedding_base_url = config.get("text_embedding", {}).get("base_url", "https://open.bigmodel.cn/api/paas/v4")
-embedding_client = ZhipuEmbeddingClient(api_key=api_key, base_url=embedding_base_url)
+api_key_str: str = (config.get("zhipu_api_key") or os.getenv("ZHIPU_API_KEY") or "")
+embedding_base_url = config.get("text_embedding", {}).get("base_url", "https://open.bigmodel.cn")
+embedding_client = ZhipuEmbeddingClient(api_key=api_key_str, base_url=embedding_base_url)
 
 # Text Embedding Entry Point
 class EmbeddingGenerator:
@@ -334,7 +337,7 @@ def test_embedding_api(test_text: Optional[str] = None) -> Dict[str, Any]:
         # 测试API连接
         connection_test = embedding_client.test_connection()
         
-        result = {
+        result: Dict[str, Any] = {
             "success": True,
             "connection_test": connection_test,
             "supported_models": embedding_client.get_available_models()
@@ -484,6 +487,103 @@ def load_embeddings_from_file(filename: str) -> Dict[str, Any]:
             "success": False,
             "error": f"加载嵌入向量失败: {str(e)}"
         }
+
+# 新增：知识库索引与搜索 MCP 工具
+@mcp.tool()
+def index_documents(
+    paths: List[str],
+    kb: str = "kb_default",
+    chunk_size: int = 500,
+    overlap: int = 50,
+    model: str = "embedding-3"
+) -> Dict[str, Any]:
+    """
+    索引本地/URL 文档到指定知识库(kb)
+    - 支持 .md / .txt 文件与目录递归
+    - 支持 http/https URL
+    安全：本地路径受环境变量 ALLOW_INDEX_DIRS 控制（; 分隔的白名单），为空则不限制
+    """
+    try:
+        if not paths or not isinstance(paths, list):
+            return {"success": False, "error": "paths 不能为空且需为列表"}
+
+        sources = collect_sources(paths)
+        if not sources:
+            return {"success": False, "error": "未找到可索引的文档"}
+
+        def embed_batch_fn(texts: List[str], m: str):
+            return embedding_generator.get_batch_embeddings(texts, m)
+
+        stats = index_to_chroma(
+            kb=kb,
+            sources=sources,
+            embed_batch_fn=embed_batch_fn,
+            chunk_size=chunk_size,
+            overlap=overlap,
+            model=model,
+        )
+        return {"success": True, **stats}
+    except Exception as e:
+        return {"success": False, "error": f"索引失败: {str(e)}"}
+
+
+@mcp.tool()
+def semantic_search(
+    query: str,
+    kb: str = "kb_default",
+    top_k: int = 5,
+    model: str = "embedding-3"
+) -> Dict[str, Any]:
+    """
+    在指定知识库(kb)中进行语义搜索，返回TopK片段
+    """
+    try:
+        if not query:
+            return {"success": False, "error": "query 不能为空"}
+
+        def embed_single_fn(text: str, m: str):
+            return embedding_generator.get_single_embedding(text, m)
+
+        res = search_kb(
+            kb=kb,
+            query=query,
+            embed_single_fn=embed_single_fn,
+            top_k=top_k,
+            model=model,
+        )
+        return res
+    except Exception as e:
+        return {"success": False, "error": f"搜索失败: {str(e)}"}
+
+
+@mcp.tool()
+def nl_command(command: str) -> Dict[str, Any]:
+    """
+    解析中文自然语言指令并路由：
+    - 索引: 例 '索引 docs kb=kb_docs chunk_size=500 overlap=50'
+    - 搜索: 例 '搜索 "差旅报销怎么走" kb=kb_docs top=5'
+    """
+    try:
+        p = parse_command(command)
+        action = p.get("action")
+        if action == "index":
+            return index_documents(
+                paths=p.get("paths", []),
+                kb=p.get("kb", "kb_default"),
+                chunk_size=int(p.get("chunk_size", 500)),
+                overlap=int(p.get("overlap", 50)),
+                model=p.get("model", "embedding-3"),
+            )
+        if action == "search":
+            return semantic_search(
+                query=p.get("query", ""),
+                kb=p.get("kb", "kb_default"),
+                top_k=int(p.get("top", 5)),
+                model=p.get("model", "embedding-3"),
+            )
+        return {"success": False, "error": p.get("error") or "无法识别的指令"}
+    except Exception as e:
+        return {"success": False, "error": f"指令执行失败: {str(e)}"}
 
 def run_interactive_mode():
     """运行交互式文本嵌入模式"""
