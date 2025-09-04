@@ -36,7 +36,7 @@
 ```powershell
 $env:ZHIPU_API_KEY="你的新Key"
 # 限制可索引的本地路径（; 分隔多路径），建议开启
-$env:ALLOW_INDEX_DIRS="D:\WorkProjects\AI\MCPServers\2AI-Embeddings\docs"
+$env:ALLOW_INDEX_DIRS="D:\...\AI-Embeddings\docs"
 ```
 
 ### 本地一行联调（无需 MCP 客户端）
